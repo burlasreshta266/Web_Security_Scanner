@@ -1,0 +1,17 @@
+@import "bootstrap/scss/functions";
+
+$primary: #b25381;
+
+$body-bg: #131313;
+$body-color: #f5f5f5;
+
+$input-bg: #1f1f1f;
+$input-border-color: #333;
+
+@import "bootstrap/scss/variables";
+@import "bootstrap/scss/variables-dark";
+@import "bootstrap/scss/maps";
+@import "bootstrap/scss/mixins";
+@import "bootstrap/scss/root";
+
+@import "bootstrap/scss/bootstrap";
