@@ -12,8 +12,8 @@ class Scanner:
         self.target_url = target_url
         self.max_depth = max_depth
         self.visited_urls: Set[str] = set()
-        self.vulnerabilities = List[Dict] = []
-        self.session = requests.session
+        self.vulnerabilities: List[Dict] = []
+        self.session = requests.Session()
 
     def normalize_usl(self, url: str):
         normal = urllib.parse.urlparse(url)
@@ -26,11 +26,11 @@ class Scanner:
         
         try:
             self.visited_urls.add(url)
-            response = self.session.get(url, verify=False)
+            response = self.session.get(url, verify=False, timeout=5)
             html = BeautifulSoup(response.text, "html.parser")
 
             for link in html.find_all("a", href=True):
-                rel = link.attrs("href")
+                rel = link.get("href")
                 new_url = urllib.parse.urljoin(url, rel)
                 if new_url.startswith(self.target_url):
                     self.crawl(new_url, depth+1)
@@ -40,13 +40,19 @@ class Scanner:
 
     
     def check_sql_injection(self, url: str):
-        sql_payloads = ["'", "1' OR '1'='1", "' OR 1=1--", "' UNION SELECT NULL--"]
-        sql_errors = ['sql', 'mysql', 'sqlite', 'postgresql', 'oracle']
+        sql_payloads = ["'", "1' OR '1'='1", "' OR 1=1--", "' UNION SELECT NULL--", "'",
+    "\"",
+    "' OR '1'='1",
+    "' OR 1=1--",
+    "'; DROP TABLE users--",
+    "' AND 1=2--",
+    "' OR 'a'='a"]
+        sql_errors = ['sql', 'mysql', 'sqlite', 'postgresql', 'oracle',  "syntax error", "unrecognized token", "operationalerror"]
 
         for payload in sql_payloads:
             try:
                 url_data = urllib.parse.urlparse(url)
-                params = urllib.parse.parse_qs(url_data)
+                params = urllib.parse.parse_qs(url_data.query)
 
                 for param in params:
                     test_params = params.copy()
@@ -56,8 +62,11 @@ class Scanner:
                     test_url = urllib.parse.urlunparse(
                         url_data._replace(query=new_query)
                     )
-                    response = self.session.get(test_url)
-                    if any(error in response.text.lower() for error in sql_errors):
+                    response = self.session.get(test_url, verify=False, timeout=5)
+                    if response.status_code == 500 or any(error in response.text.lower() for error in sql_errors):
+                        print("/n/nVULNERABILITY")
+                        print(f"URL: {test_url}")
+                        print(f"type: SQL injection\n\n")
                         self.report_vulnerability({
                             "type": "SQL injection",
                             "url" : url,
@@ -79,20 +88,20 @@ class Scanner:
         try:
             for payload in xss_payloads:
                 url_data = urllib.parse.urlparse(url)
-                params = urllib.parse.parse_qs(url_data)
+                params = urllib.parse.parse_qs(url_data.query)
 
                 for param in params:
                     test_params = params.copy()
-                    test_params[param] = payload
+                    test_params[param] = [payload]
                     new_query = urllib.parse.urlencode(test_params, doseq=True)
 
                     test_url = urllib.parse.urlunparse(
                         url_data._replace(query=new_query)
                     )
-                    response = self.session.get(test_url)
-                    if payload in response.text.lower():
+                    response = self.session.get(test_url, verify=False, timeout=5)
+                    if payload.lower() in response.text.lower():
                         self.report_vulnerability({
-                            "type": "SQL injection",
+                            "type": "XSS injection",
                             "url" : url,
                             "parameter" : param,
                             "payload" : payload
@@ -102,7 +111,7 @@ class Scanner:
             return f"Error checking XSS injection in {url}: {str(e)}"
 
 
-    def check_sensitive_info(self, url: str):
+    def check_pii(self, url: str):
         sensitive_patterns = {
             'email': r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}',
             'phone': r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b',
@@ -111,7 +120,7 @@ class Scanner:
         }
 
         try:
-            response = self.session.get(url)
+            response = self.session.get(url, verify=False, timeout=5)
 
             for info_type, pattern in sensitive_patterns.items():
                 matches = re.finditer(pattern, response.text)
@@ -129,3 +138,20 @@ class Scanner:
 
     def report_vulnerability(self, vulnerability: Dict):
         self.vulnerabilities.append(vulnerability)
+
+    def scan(self):
+        print(f"Starting scan of: {self.target_url}")
+        self.crawl(self.target_url)
+
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = []
+
+            for url in self.visited_urls:
+                futures.append(executor.submit(self.check_sql_injection, url))
+                futures.append(executor.submit(self.check_xss, url))
+                futures.append(executor.submit(self.check_pii, url))
+
+            for future in futures:
+                future.result()   
+        
+        return self.vulnerabilities
