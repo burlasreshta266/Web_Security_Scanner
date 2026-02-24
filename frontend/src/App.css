@@ -3,3 +3,7 @@
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
+
+.bottom-divider {
+  border-bottom: 1px solid #ccc;
+}

@@ -1,10 +1,8 @@
 import requests
 from bs4 import BeautifulSoup
 import urllib.parse
-import colorama
 import re
 from concurrent.futures import ThreadPoolExecutor
-import sys
 from typing import List, Dict, Set
 
 class Scanner:
@@ -12,7 +10,7 @@ class Scanner:
         self.target_url = target_url
         self.max_depth = max_depth
         self.visited_urls: Set[str] = set()
-        self.vulnerabilities: List[Dict] = []
+        self.vulnerabilities: Dict[str, List[Dict]] = {}
         self.session = requests.Session()
 
     def normalize_usl(self, url: str):
@@ -68,7 +66,7 @@ class Scanner:
                         print(f"URL: {test_url}")
                         print(f"type: SQL injection\n\n")
                         self.report_vulnerability({
-                            "type": "SQL injection",
+                            "type": "SQL",
                             "url" : url,
                             "parameter" : param,
                             "payload" : payload
@@ -101,7 +99,7 @@ class Scanner:
                     response = self.session.get(test_url, verify=False, timeout=5)
                     if payload.lower() in response.text.lower():
                         self.report_vulnerability({
-                            "type": "XSS injection",
+                            "type": "XSS",
                             "url" : url,
                             "parameter" : param,
                             "payload" : payload
@@ -126,7 +124,7 @@ class Scanner:
                 matches = re.finditer(pattern, response.text)
                 for match in matches:
                     self.report_vulnerability({
-                        'type': 'Sensitive Information Exposure',
+                        'type': 'PII',
                         'url': url,
                         'info_type': info_type,
                         'pattern': pattern
@@ -137,7 +135,21 @@ class Scanner:
 
 
     def report_vulnerability(self, vulnerability: Dict):
-        self.vulnerabilities.append(vulnerability)
+        vtype = vulnerability.get("type")
+        if vtype not in self.vulnerabilities:
+            self.vulnerabilities[vtype] = []
+        vuln = {
+            "url": vulnerability.get("url"),
+            "parameter": vulnerability.get("parameter"),
+            "payload": vulnerability.get("payload"),
+        }
+        if vtype == "PII":
+            vuln = {                
+                "info_type": vulnerability.get("info_type"),
+                "pattern": vulnerability.get("pattern"),
+            }
+        self.vulnerabilities[vtype].append(vuln)
+
 
     def scan(self):
         print(f"Starting scan of: {self.target_url}")
