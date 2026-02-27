@@ -59,5 +59,4 @@ def multi_test(id: str = "", comment: str = ""):
 @app.post("/scan")
 def scan(request: ScanRequest):
     scanner = Scanner(request.url)
-    scanner.scan()
-    return {"vulnerabilities": scanner.vulnerabilities}
+    return scanner.scan()

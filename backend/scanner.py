@@ -12,6 +12,7 @@ class Scanner:
         self.visited_urls: Set[str] = set()
         self.vulnerabilities: Dict[str, List[Dict]] = {}
         self.session = requests.Session()
+        self._seen_signatures: Set[str] = set()
 
     def normalize_usl(self, url: str):
         normal = urllib.parse.urlparse(url)
@@ -148,7 +149,44 @@ class Scanner:
                 "info_type": vulnerability.get("info_type"),
                 "pattern": vulnerability.get("pattern"),
             }
+        signature = f"{vtype}:{sorted(vuln.items())}"
+        if signature in self._seen_signatures:
+            return
+
+        self._seen_signatures.add(signature)
         self.vulnerabilities[vtype].append(vuln)
+
+
+    def build_report(self):
+        findings = []
+        severity_map = {
+            "SQL": "high",
+            "XSS": "high",
+            "PII": "medium"
+        }
+
+        for vtype, items in self.vulnerabilities.items():
+            for idx, item in enumerate(items, start=1):
+                findings.append({
+                    "id": f"{vtype}-{idx}",
+                    "type": vtype,
+                    "severity": severity_map.get(vtype, "medium"),
+                    "title": f"Potential {vtype} issue",
+                    "details": item,
+                    "recommendation": "Review endpoint input handling and output encoding."
+                })
+
+        summary = {
+            "total_findings": len(findings),
+            "by_type": {vtype: len(items) for vtype, items in self.vulnerabilities.items()},
+            "scanned_urls": len(self.visited_urls)
+        }
+
+        return {
+            "summary": summary,
+            "findings": findings,
+            "vulnerabilities": self.vulnerabilities
+        }
 
 
     def scan(self):
@@ -166,4 +204,4 @@ class Scanner:
             for future in futures:
                 future.result()   
         
-        return self.vulnerabilities
+        return self.build_report()
