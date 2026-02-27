@@ -1,5 +1,6 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import {
     Alert,
     Badge,
@@ -7,9 +8,12 @@ import {
     Card,
     Col,
     Container,
+    Form,
+    InputGroup,
     ListGroup,
     Navbar,
     Row,
+    Spinner,
     Table,
 } from 'react-bootstrap';
 
@@ -25,8 +29,19 @@ const Results = () => {
     const location = useLocation();
     const navigate = useNavigate();
 
-    const report = location.state?.report;
-    const targetUrl = location.state?.target_url;
+    const [report, setReport] = useState(location.state?.report ?? null);
+    const [targetUrl, setTargetUrl] = useState(location.state?.target_url ?? '');
+    const [editableUrl, setEditableUrl] = useState(location.state?.target_url ?? '');
+    const [isEditingUrl, setIsEditingUrl] = useState(false);
+    const [rescanLoading, setRescanLoading] = useState(false);
+    const [rescanError, setRescanError] = useState('');
+
+    useEffect(() => {
+        setReport(location.state?.report ?? null);
+        const incomingUrl = location.state?.target_url ?? '';
+        setTargetUrl(incomingUrl);
+        setEditableUrl(incomingUrl);
+    }, [location.state]);
 
     const findings = report?.findings ?? [];
     const summary = report?.summary;
@@ -46,6 +61,37 @@ const Results = () => {
         { label: 'Scanned URLs', value: summary?.scanned_urls ?? '-' },
         { label: 'Risk categories', value: Object.keys(groupedFindings).length },
     ];
+
+    const handleRescanWithEditedUrl = async () => {
+        if (!editableUrl) {
+            setRescanError('Please enter a valid URL before rescanning.');
+            return;
+        }
+
+        setRescanLoading(true);
+        setRescanError('');
+
+        try {
+            const response = await axios.post('http://127.0.0.1:8000/scan', {
+                url: editableUrl,
+            });
+
+            setReport(response.data);
+            setTargetUrl(editableUrl);
+            setIsEditingUrl(false);
+            navigate('/results', {
+                replace: true,
+                state: {
+                    report: response.data,
+                    target_url: editableUrl,
+                },
+            });
+        } catch (error) {
+            setRescanError(`Unable to rescan URL: ${error.message}`);
+        } finally {
+            setRescanLoading(false);
+        }
+    };
 
     if (!report) {
         return (
@@ -76,7 +122,55 @@ const Results = () => {
                 <Card className="results-panel border-0 mb-4">
                     <Card.Body>
                         <p className="text-uppercase text-secondary mb-1 small">Scan target</p>
-                        <h4 className="text-info mb-0">{targetUrl || 'Unknown target'}</h4>
+                        {isEditingUrl ? (
+                            <>
+                                <InputGroup className="mb-2">
+                                    <Form.Control
+                                        value={editableUrl}
+                                        onChange={(event) => setEditableUrl(event.target.value)}
+                                        placeholder="Enter URL"
+                                        aria-label="Editable scan target URL"
+                                    />
+                                    <Button
+                                        variant="success"
+                                        onClick={handleRescanWithEditedUrl}
+                                        disabled={rescanLoading}
+                                    >
+                                        {rescanLoading ? <Spinner size="sm" /> : 'Save & Rescan'}
+                                    </Button>
+                                    <Button
+                                        variant="outline-light"
+                                        onClick={() => {
+                                            setEditableUrl(targetUrl);
+                                            setRescanError('');
+                                            setIsEditingUrl(false);
+                                        }}
+                                        disabled={rescanLoading}
+                                    >
+                                        Cancel
+                                    </Button>
+                                </InputGroup>
+                                {rescanError && (
+                                    <Alert variant="danger" className="mb-0 py-2">
+                                        {rescanError}
+                                    </Alert>
+                                )}
+                            </>
+                        ) : (
+                            <div className="d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                                <h4 className="text-info mb-0">{targetUrl || 'Unknown target'}</h4>
+                                <Button
+                                    variant="outline-info"
+                                    onClick={() => {
+                                        setEditableUrl(targetUrl);
+                                        setRescanError('');
+                                        setIsEditingUrl(true);
+                                    }}
+                                >
+                                    Edit URL
+                                </Button>
+                            </div>
+                        )}
                     </Card.Body>
                 </Card>
 
